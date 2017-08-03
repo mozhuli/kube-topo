@@ -4,6 +4,10 @@ import (
 	"io/ioutil"
 	"time"
 
+	"github.com/mozhuli/kube-topo/pkg/elasticsearch"
+
+	"k8s.io/client-go/kubernetes"
+
 	"gopkg.in/yaml.v2"
 )
 
@@ -12,14 +16,16 @@ var (
 	KubeConfig string
 	// ElasticsearchEndpoint is elasticsearch endpoint
 	ElasticsearchEndpoint string
+	// Address is to listen and serve
+	Address string
 	// Timeout of sniffer report (default: -1s)
 	Timeout time.Duration
-	// SniffLength is the length of sniffing packet (default: 44)
-	SniffLength int
-	// Promiscuous open promiscuous mode
-	Promiscuous bool
 	// Debug enable debug output
 	Debug bool
+	// KubeClient the kubernetes client
+	KubeClient *kubernetes.Clientset
+	// EsClient the es client
+	EsClient *elasticsearch.Client
 )
 
 // Config is the internal representation of the yaml that
@@ -27,9 +33,8 @@ var (
 type Config struct {
 	KubeConfig            string `yaml:"kube-config"`
 	ElasticsearchEndpoint string `yaml:"endpoint"`
+	Address               string `yaml:"address"`
 	Timeout               int    `yaml:"timeout"`
-	SniffLength           int    `yaml:"length"`
-	Promiscuous           bool   `yaml:"promiscuous"`
 	Debug                 bool   `yaml:"debug"`
 }
 

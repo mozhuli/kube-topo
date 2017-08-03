@@ -2,6 +2,8 @@ package topo
 
 import (
 	//"encoding/json"
+
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -10,15 +12,15 @@ import (
 	"github.com/mozhuli/kube-topo/pkg/config"
 	"github.com/mozhuli/kube-topo/pkg/elasticsearch"
 	"github.com/mozhuli/kube-topo/pkg/elasticsearch/types"
-	"github.com/mozhuli/kube-topo/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
+// Index is the es url index
 var Index = "search"
 
 func parseParams(r *http.Request) (string, string, error) {
-	var namespace, topoID string
+	var namespace, topoSelector string
 	r.ParseForm()
 	for k, v := range r.Form {
 		if len(v) != 1 {
@@ -27,40 +29,41 @@ func parseParams(r *http.Request) (string, string, error) {
 		if k == "namespace" {
 			namespace = v[0]
 		}
-		if k == "topoID" {
-			topoID = v[0]
+		if k == "topoSelector" {
+			topoSelector = v[0]
 		}
 	}
-	if namespace != "" && topoID != "" {
-		return namespace, topoID, nil
+	if namespace != "" && topoSelector != "" {
+		return namespace, topoSelector, nil
 	}
 	return "", "", fmt.Errorf("Wrong request params")
 }
 
+// TopoHandler hand the get topological graph request.
 func TopoHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/json")
-	// Parse namespace topoID params
-	namespace, topoID, err := parseParams(r)
+	// Parse namespace topoSelector params
+	namespace, topoSelector, err := parseParams(r)
 	if err != nil {
 		glog.Errorf("Failed parse params: %v", err)
 		w.Write([]byte("Wrong params!\n"))
-		//fmt.Fprint(w, "Wrong params")
-		//panic(err)
-
+		return
 	}
-	glog.V(3).Infof("Parsed params namespace: %s,topoID: %s", namespace, topoID)
+	glog.V(3).Infof("Parsed params namespace: %s,topoSelector: %s", namespace, topoSelector)
 
 	//Generate topological graph
-	topoData, err := generateTopo(namespace, topoID)
+	topoData, err := generateTopo(config.KubeClient, config.EsClient, namespace, topoSelector)
 	if err != nil {
 		glog.Errorf("Failed generate topological graph data: %v", err)
 		w.Write([]byte("Failed generate topological graph data!\n"))
 		//panic(err)
 	}
-	glog.V(3).Infof("Generated topological graph data: %v", topoData)
+	glog.V(3).Infof("Generated topological graph data: %#v", topoData)
 
-	//w.Write([]byte(*topoData))
+	b, _ := json.Marshal(topoData)
+	//fmt.Fprint(w, *b)
+	w.Write([]byte(b))
 
 	//w.Write([]byte("Gorilla Map!\n"))
 	//fmt.Println(client.ClusterState())
@@ -68,50 +71,33 @@ func TopoHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func generateTopo(namespace, topoID string) (*types.Topology, error) {
-	_, err := elasticsearch.NewClient(config.ElasticsearchEndpoint)
+func generateTopo(kubeClient *kubernetes.Clientset, esClient *elasticsearch.Client, namespace, topoSelector string) (*types.Topology, error) {
+	podIPs, err := getPodIPs(kubeClient, namespace, topoSelector)
 	if err != nil {
-		glog.V(3).Infof("Init elasticsearch client failed: %v", err)
-		return nil, fmt.Errorf("Init elasticsearch client failed: %v", err)
+		glog.V(3).Infof("Fetch pod IPs of topoSelector %s in namespace %s failed: %v", topoSelector, namespace, err)
+		return nil, fmt.Errorf("Fetch pod IPs of topoSelector %s in namespace %s failed: %v", topoSelector, namespace, err)
+	}
+	glog.V(3).Infof("Fetch pod IPs of topoSelector %s in namespace %s: %v", topoSelector, namespace, podIPs)
+
+	// test data
+	ips := []string{"10.168.14.71", "10.168.14.99"}
+	// Bool Search with podIPs
+	topo, err := esClient.GetLinks(ips)
+	if err != nil {
+		glog.V(3).Infof("Get links of topoSelector %s in namespace %s failed: %v", topoSelector, namespace, err)
+		return nil, fmt.Errorf("Get links of topoSelector %s in namespace %s failed: %v", topoSelector, namespace, err)
 	}
 
-	podIPs, err := getPodIPs(namespace, topoID)
-	if err != nil {
-		glog.V(3).Infof("Fetch pod IPs of topoID %s in namespace %s failed: %v", namespace, topoID, err)
-		return nil, fmt.Errorf("Fetch pod IPs of topoID %s in namespace %s failed: %v", namespace, topoID, err)
-	}
-	glog.V(3).Infof("Fetch pod IPs of topoID %s in namespace %s: %v", namespace, topoID, podIPs)
-
-	// Search with a term query
-	/*termQuery := elastic.NewTermQuery("user", "olivere")
-	searchResult, err := client.Search().
-		Index("twitter").        // search in index "twitter"
-		Query(termQuery).        // specify the query
-		Sort("user", true).      // sort by "user" field, ascending
-		From(0).Size(10).        // take documents 0-9
-		Pretty(true).            // pretty print request and response JSON
-		Do(context.Background()) // execute
-	if err != nil {
-		// Handle error
-		fmt.Println(err)
-		//panic(err)
-	}*/
-	return nil, nil
+	return &types.Topology{
+		Name:  topoSelector,
+		Links: topo,
+	}, nil
 }
 
-func getPodIPs(namespace, topoID string) ([]string, error) {
-	// Create kubernetes client config. Use kubeconfig if given, otherwise assume in-cluster.
-	config, err := util.NewClusterConfig(config.KubeConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build kubeconfig: %v", err)
-	}
-	kubeClient, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create kubernetes clientset: %v", err)
-	}
-
+func getPodIPs(kubeClient *kubernetes.Clientset, namespace, topoSelector string) ([]string, error) {
+	return nil, nil
 	opts := metav1.ListOptions{
-		LabelSelector: "topoID=" + topoID,
+		LabelSelector: topoSelector,
 	}
 	endpointList, err := kubeClient.CoreV1().Endpoints(namespace).List(opts)
 	if err != nil {

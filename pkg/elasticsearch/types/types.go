@@ -2,15 +2,14 @@ package types
 
 // Topology is a representaion of a topological graph
 type Topology struct {
-	Name  string
-	Links []*Link
+	Name  string `json:"name"`
+	Links []Link `json:"links"`
 }
 
-// Link is a representation of a network link
+// Link specifies the link of pod.
 type Link struct {
-	Count   int32
-	DstIP   string
-	SrcIP   string
-	DstPort string
-	SrcPort string
+	Key   string `json:"key"`
+	Count int64  `json:"count"`
+	DstIP string `json:"dstIP,omitempty"`
+	SrcIP string `json:"srcIP,omitempty"`
 }

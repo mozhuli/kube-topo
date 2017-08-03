@@ -13,12 +13,27 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+const (
+	defaultQPS   = 100
+	defaultBurst = 100
+)
+
+// NewClusterConfig builds a kubernetes cluster config.
 func NewClusterConfig(kubeConfig string) (*rest.Config, error) {
-	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfig)
+	var cfg *rest.Config
+	var err error
+
+	if kubeConfig != "" {
+		cfg, err = clientcmd.BuildConfigFromFlags("", kubeConfig)
+	} else {
+		cfg, err = rest.InClusterConfig()
+	}
 	if err != nil {
 		return nil, err
 	}
-	cfg.QPS = 100
-	cfg.Burst = 100
+
+	// Setup default QPS and burst.
+	cfg.QPS = defaultQPS
+	cfg.Burst = defaultBurst
 	return cfg, nil
 }
