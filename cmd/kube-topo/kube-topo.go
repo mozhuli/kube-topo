@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
@@ -20,11 +26,44 @@ var (
 	address    = pflag.String("address", "localhost:8000", "the address to listen and serve")
 )
 
-func initHTTPHandle() {
+func startController(kubeClient *kubernetes.Clientset,*elasticsearch.Client) error {
+	// Creates a new topo controller
+	topoController, err := topo.NewTopoController(kubeClient)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	wg, ctx := errgroup.WithContext(ctx)
+
+	wg.Go(func() error { return topoController.Run(ctx.Done()) })
+	wg.Go(func() error { return initHTTPHandle(ctx.Done()) })
+
+	term := make(chan os.Signal)
+	signal.Notify(term, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case <-term:
+		glog.V(4).Info("Received SIGTERM, exiting gracefully...")
+	case <-ctx.Done():
+	}
+
+	cancel()
+	if err := wg.Wait(); err != nil {
+		glog.Errorf("Unhandled error received: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func initHTTPHandle(stopCh <-chan struct{})error{
 	r := mux.NewRouter()
 	r.HandleFunc("/topo", topo.TopoHandler)
 	http.Handle("/", r)
 	http.ListenAndServe(*address, r)
+	<-stopCh
+	return nil
 }
 
 func initClients() (*kubernetes.Clientset, *elasticsearch.Client, error) {
@@ -61,6 +100,11 @@ func main() {
 	config.KubeClient = kubeClient
 	config.EsClient = esClient
 
+	// Start topo controller.
+	if err := startController(kubeClient, esClient); err != nil {
+		glog.Fatal(err)
+	}
+
 	// Start http handle
-	initHTTPHandle()
+	//initHTTPHandle()
 }

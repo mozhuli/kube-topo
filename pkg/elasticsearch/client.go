@@ -8,7 +8,7 @@ import (
 	elastic "gopkg.in/olivere/elastic.v5"
 
 	"github.com/golang/glog"
-	"github.com/mozhuli/kube-topo/pkg/elasticsearch/types"
+	"github.com/mozhuli/kube-topo/pkg/types"
 	//"github.com/mozhuli/kube-topo/pkg/util"
 	//gcfg "gopkg.in/gcfg.v1"
 )
@@ -51,7 +51,7 @@ func (c *Client) CreateIndex(index string) error {
 }
 
 // AddDocument add document to es.
-func (c *Client) AddDocument(link types.Link) error {
+func (c *Client) AddDocument(link types.IPLink) error {
 	// Add a document to the index
 	_, err := c.ES.Index().
 		Index("topo").
@@ -65,7 +65,7 @@ func (c *Client) AddDocument(link types.Link) error {
 }
 
 // GetLinks get links of specific ips.
-func (c *Client) GetLinks(ips []string) ([]types.Link, error) {
+func (c *Client) GetLinks(ips []string) ([]types.IPLink, error) {
 	//ips := []string{"10.168.14.71", "10.168.14.99"}
 	res, err := FindTopo(c.ES, ips)
 	if err != nil {
@@ -74,12 +74,12 @@ func (c *Client) GetLinks(ips []string) ([]types.Link, error) {
 	}
 
 	// Output results
-	//fmt.Println(res)
+	// fmt.Println(res)
 	return res, nil
 }
 
 // FindTopo executes the search and returns a response.
-func FindTopo(client *elastic.Client, ips []string) ([]types.Link, error) {
+func FindTopo(client *elastic.Client, ips []string) ([]types.IPLink, error) {
 	// Create service and use query, aggregations, filter, pagination funcs
 	search := client.Search().Index("topo").Type("log")
 	search = query(search, ips)
@@ -105,13 +105,13 @@ func FindTopo(client *elastic.Client, ips []string) ([]types.Link, error) {
 	//resp.Total = sr.Hits.TotalHits
 
 	// Deserialize aggregations
-	var links []types.Link
+	var links []types.IPLink
 	if agg, found := sr.Aggregations.Terms("links"); found {
-		links = make([]types.Link, len(agg.Buckets))
+		links = make([]types.IPLink, len(agg.Buckets))
 		for i, bucket := range agg.Buckets {
 			fmt.Println(bucket.DocCount)
 			fmt.Println(bucket.Key.(string))
-			links[i] = types.Link{
+			links[i] = types.IPLink{
 				Key:   bucket.Key.(string),
 				Count: bucket.DocCount,
 			}

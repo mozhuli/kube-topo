@@ -1,4 +1,4 @@
-package topo
+package topo11
 
 import (
 	//"encoding/json"
@@ -82,15 +82,15 @@ func generateTopo(kubeClient *kubernetes.Clientset, esClient *elasticsearch.Clie
 	// test data
 	ips := []string{"10.168.14.71", "10.168.14.99"}
 	// Bool Search with podIPs
-	topo, err := esClient.GetLinks(ips)
+	topo, err := esClient.GetIPLinks(ips)
 	if err != nil {
-		glog.V(3).Infof("Get links of topoSelector %s in namespace %s failed: %v", topoSelector, namespace, err)
-		return nil, fmt.Errorf("Get links of topoSelector %s in namespace %s failed: %v", topoSelector, namespace, err)
+		glog.V(3).Infof("Get IPLinks of topoSelector %s in namespace %s failed: %v", topoSelector, namespace, err)
+		return nil, fmt.Errorf("Get IPLinks of topoSelector %s in namespace %s failed: %v", topoSelector, namespace, err)
 	}
 
 	return &types.Topology{
-		Name:  topoSelector,
-		Links: topo,
+		Name:    topoSelector,
+		IPLinks: topo,
 	}, nil
 }
 

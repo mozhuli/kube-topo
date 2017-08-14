@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/mozhuli/kube-topo/pkg/elasticsearch"
+	"github.com/mozhuli/kube-topo/pkg/types"
 
 	"k8s.io/client-go/kubernetes"
 
@@ -26,6 +27,8 @@ var (
 	KubeClient *kubernetes.Clientset
 	// EsClient the es client
 	EsClient *elasticsearch.Client
+	// Topomap save the topo's ip informations.
+	Topomap *types.TopoToIPs
 )
 
 // Config is the internal representation of the yaml that
