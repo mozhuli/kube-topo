@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/golang/glog"
+	api "k8s.io/client-go/pkg/api/v1"
 	//"golang.org/x/net/context"
 	"github.com/mozhuli/kube-topo/pkg/config"
 	"github.com/mozhuli/kube-topo/pkg/elasticsearch"
@@ -72,15 +74,15 @@ func TopoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func generateTopo(kubeClient *kubernetes.Clientset, esClient *elasticsearch.Client, namespace, topoSelector string) (*types.Topology, error) {
-	podIPs, err := getPodIPs(kubeClient, namespace, topoSelector)
+	ips, ipToSVC, err := getIPs(kubeClient, namespace, topoSelector)
 	if err != nil {
 		glog.V(3).Infof("Fetch pod IPs of topoSelector %s in namespace %s failed: %v", topoSelector, namespace, err)
 		return nil, fmt.Errorf("Fetch pod IPs of topoSelector %s in namespace %s failed: %v", topoSelector, namespace, err)
 	}
-	glog.V(3).Infof("Fetch pod IPs of topoSelector %s in namespace %s: %v", topoSelector, namespace, podIPs)
+	glog.V(3).Infof("Fetched pod IPs %v of topoSelector %s in namespace %s", ips, topoSelector, namespace)
 
 	// test data
-	ips := []string{"10.168.14.71", "10.168.14.99"}
+	//ips := []string{"10.168.14.71", "10.168.14.99"}
 	// Bool Search with podIPs
 	topo, err := esClient.GetLinks(ips)
 	if err != nil {
@@ -88,29 +90,58 @@ func generateTopo(kubeClient *kubernetes.Clientset, esClient *elasticsearch.Clie
 		return nil, fmt.Errorf("Get links of topoSelector %s in namespace %s failed: %v", topoSelector, namespace, err)
 	}
 
+	linkToSVC := make(map[string]int64)
+	for _, link := range topo {
+		ip := strings.Split(link.Key, "_")
+		linkName := ipToSVC[ip[0]] + "_" + ipToSVC[ip[1]]
+		if _, ok := linkToSVC[linkName]; ok {
+			linkToSVC[linkName]++
+		} else {
+			linkToSVC[linkName] = 1
+		}
+	}
+
+	links := make([]types.LinkSVC, len(linkToSVC))
+	i := 0
+	for k, c := range linkToSVC {
+		svcName := strings.Split(k, "_")
+		links[i] = types.LinkSVC{
+			Key:    k,
+			Count:  c,
+			SrcSVC: svcName[0],
+			DstSVC: svcName[1],
+		}
+		i++
+	}
+
 	return &types.Topology{
 		Name:  topoSelector,
-		Links: topo,
+		Links: links,
 	}, nil
 }
 
-func getPodIPs(kubeClient *kubernetes.Clientset, namespace, topoSelector string) ([]string, error) {
-	return nil, nil
+func getIPs(kubeClient *kubernetes.Clientset, namespace, topoSelector string) ([]string, map[string]string, error) {
+	//return nil, nil
 	opts := metav1.ListOptions{
 		LabelSelector: topoSelector,
 	}
-	endpointList, err := kubeClient.CoreV1().Endpoints(namespace).List(opts)
+	endpointList, err := kubeClient.CoreV1().Endpoints(api.NamespaceAll).List(opts)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-
-	var podIPs []string
-	for i := 0; i < len(endpointList.Items); i++ {
-		for j := 0; j < len(endpointList.Items[i].Subsets[0].Addresses); j++ {
-			ip := endpointList.Items[i].Subsets[0].Addresses[j].IP
-			podIPs = append(podIPs, ip)
+	var IPs []string
+	ipToSVC := make(map[string]string)
+	for _, endpoint := range endpointList.Items {
+		for _, subSets := range endpoint.Subsets {
+			for _, address := range subSets.Addresses {
+				IPs = append(IPs, address.IP)
+				ipToSVC[address.IP] = endpoint.Name
+			}
+			for _, notReadyAddress := range subSets.NotReadyAddresses {
+				IPs = append(IPs, notReadyAddress.IP)
+				ipToSVC[notReadyAddress.IP] = endpoint.Name
+			}
 		}
-
 	}
-	return podIPs, nil
+	return IPs, ipToSVC, nil
 }
